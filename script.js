@@ -141,13 +141,13 @@ function readSettings_(sheet) {
 function runProductTypeExport_(ctx) {
   clearBelowHeader_(ctx.sheets.products);
   var token = '';
-  var written = 0;
   var scanned = 0;
   var filteredOut = 0;
+  var rowsById = {};
+  var idOrder = [];
 
 
   var pages = 0;
-  var buffer = [];
   while (pages < ctx.settings.maxMerchantPagesPerRun && !shouldStopSoon_(ctx.settings)) {
     var page = fetchMerchantProductsPage_(ctx.settings.merchantId, token, ctx.settings.merchantPageSize, ctx.settings);
     for (var i = 0; i < page.items.length; i++) {
@@ -156,28 +156,23 @@ function runProductTypeExport_(ctx) {
         filteredOut++;
         continue;
       }
-      buffer.push(productExportRow_(page.items[i]));
-      if (buffer.length >= ctx.settings.productRowFlushSize) {
-        appendRows_(ctx.sheets.products, buffer);
-        written += buffer.length;
-        buffer = [];
-      }
+      mergeProductExportRow_(rowsById, idOrder, productExportRow_(page.items[i]));
     }
     token = page.nextPageToken || '';
     pages++;
-    if (buffer.length) {
-      appendRows_(ctx.sheets.products, buffer);
-      written += buffer.length;
-      buffer = [];
-    }
     if (!token) break;
   }
 
 
   if (token) {
-    throw new Error('У Merchant більше товарів, ніж скрипт обробив за один запуск. Збільшіть max_merchant_pages_per_run і запустіть ще раз. Записано=' + written + ', проскановано=' + scanned + ', відфільтровано=' + filteredOut + '.');
+    throw new Error('У Merchant більше товарів, ніж скрипт обробив за один запуск. Збільшіть max_merchant_pages_per_run і запустіть ще раз. Проскановано=' + scanned + ', відфільтровано=' + filteredOut + '.');
   }
-  return written;
+  var rows = productExportRows_(rowsById, idOrder);
+  var flushSize = Math.max(1, ctx.settings.productRowFlushSize || 1000);
+  for (var j = 0; j < rows.length; j += flushSize) {
+    appendRows_(ctx.sheets.products, rows.slice(j, j + flushSize));
+  }
+  return rows.length;
 }
 
 
@@ -193,6 +188,32 @@ function productExportRow_(p) {
     normOfferId_(p.offerId || p.id || ''),
     fullPath
   ];
+}
+
+
+function mergeProductExportRow_(rowsById, idOrder, row) {
+  var id = String(row[0] || '').trim();
+  if (!id) return;
+  var productType = normalizeProductType_(row[1]);
+  if (!rowsById[id]) {
+    rowsById[id] = [id, productType];
+    idOrder.push(id);
+    return;
+  }
+  var existingProductType = normalizeProductType_(rowsById[id][1]);
+  if (!existingProductType || productType.length > existingProductType.length) {
+    rowsById[id] = [id, productType];
+  }
+}
+
+
+function productExportRows_(rowsById, idOrder) {
+  var rows = [];
+  for (var i = 0; i < idOrder.length; i++) {
+    var row = rowsById[idOrder[i]];
+    if (row) rows.push(row);
+  }
+  return rows;
 }
 
 
