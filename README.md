@@ -26,5 +26,5 @@ Google Ads Script для експорту `product_type` з Merchant Center пі
 
 Скрипт створює або оновлює листи:
 
+- `Products` - перший лист таблиці; має тільки дві колонки: `ID` і `Product Type`.
 - `Settings` - налаштування запуску.
-- `ProductTypeExport` - проста таблиця для перенесення `product_type`: `ID` і `Product Type`.

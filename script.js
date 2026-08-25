@@ -5,8 +5,8 @@
  * після застосування правил перетворення.
  *
  * Листи:
+ * - Products: експорт ID + Product Type для перенесення між фідами.
  * - Settings: налаштування запуску.
- * - ProductTypeExport: простий експорт ID + Product Type для перенесення між фідами.
  *
  * Потрібні Advanced APIs у Google Ads Scripts:
  * - Merchant API -> Products
@@ -17,8 +17,9 @@
 var SPREADSHEET_URL = 'PASTE_SPREADSHEET_URL_HERE';
 
 
+var PRODUCTS_SHEET = 'Products';
 var SETTINGS_SHEET = 'Settings';
-var PRODUCT_TYPE_EXPORT_SHEET = 'ProductTypeExport';
+var OLD_GENERATED_SHEETS = ['ProductTypeExport', 'ProductTypes', 'Brands'];
 
 
 var START_TIME = new Date().getTime();
@@ -60,18 +61,29 @@ function resetAudit() {
   }
   var ss = SpreadsheetApp.openByUrl(SPREADSHEET_URL);
   var sheets = ensureSheets_(ss);
-  clearBelowHeader_(sheets.productTypeExport);
+  clearBelowHeader_(sheets.products);
 }
 
 
 function ensureSheets_(ss) {
+  cleanupOldGeneratedSheets_(ss);
   var out = {
-    settings: ss.getSheetByName(SETTINGS_SHEET) || ss.insertSheet(SETTINGS_SHEET),
-    productTypeExport: ss.getSheetByName(PRODUCT_TYPE_EXPORT_SHEET) || ss.insertSheet(PRODUCT_TYPE_EXPORT_SHEET)
+    products: ss.getSheetByName(PRODUCTS_SHEET) || ss.insertSheet(PRODUCTS_SHEET, 0),
+    settings: ss.getSheetByName(SETTINGS_SHEET) || ss.insertSheet(SETTINGS_SHEET)
   };
+  ss.setActiveSheet(out.products);
+  ss.moveActiveSheet(1);
+  ensureHeader_(out.products, productExportHeader_());
   ensureSettingsTemplate_(out.settings);
-  ensureHeader_(out.productTypeExport, productTypeExportHeader_());
   return out;
+}
+
+
+function cleanupOldGeneratedSheets_(ss) {
+  for (var i = 0; i < OLD_GENERATED_SHEETS.length; i++) {
+    var sheet = ss.getSheetByName(OLD_GENERATED_SHEETS[i]);
+    if (sheet && ss.getSheets().length > 1) ss.deleteSheet(sheet);
+  }
 }
 
 
@@ -87,7 +99,7 @@ function ensureSettingsTemplate_(sheet) {
     ['merchant_api_retry_count', settingOr_(existing.merchant_api_retry_count, '5'), 'Кількість повторних спроб після помилок Merchant API.'],
     ['merchant_api_retry_sleep_seconds', settingOr_(existing.merchant_api_retry_sleep_seconds, '10'), 'Базова пауза між повторними спробами в секундах.'],
     ['max_merchant_pages_per_run', settingOr_(existing.max_merchant_pages_per_run, '25'), 'Максимальна кількість сторінок Merchant API за один запуск.'],
-    ['product_row_flush_size', settingOr_(existing.product_row_flush_size, '1000'), 'Кількість рядків, які записуються в ProductTypeExport одним пакетом.'],
+    ['product_row_flush_size', settingOr_(existing.product_row_flush_size, '1000'), 'Кількість рядків, які записуються в Products одним пакетом.'],
     ['merchant_data_source_id_filter', existing.merchant_data_source_id_filter || '', 'Необов’язковий фільтр data source ID через кому. Порожньо = всі.'],
     ['merchant_feed_label_filter', existing.merchant_feed_label_filter || '', 'Необов’язковий фільтр feed label через кому. Порожньо = всі.'],
     ['merchant_content_language_filter', existing.merchant_content_language_filter || '', 'Необов’язковий фільтр мов контенту через кому. Порожньо = всі.']
@@ -127,7 +139,7 @@ function readSettings_(sheet) {
 
 
 function runProductTypeExport_(ctx) {
-  clearBelowHeader_(ctx.sheets.productTypeExport);
+  clearBelowHeader_(ctx.sheets.products);
   var token = '';
   var written = 0;
   var scanned = 0;
@@ -144,9 +156,9 @@ function runProductTypeExport_(ctx) {
         filteredOut++;
         continue;
       }
-      buffer.push(productTypeExportRow_(page.items[i]));
+      buffer.push(productExportRow_(page.items[i]));
       if (buffer.length >= ctx.settings.productRowFlushSize) {
-        appendRows_(ctx.sheets.productTypeExport, buffer);
+        appendRows_(ctx.sheets.products, buffer);
         written += buffer.length;
         buffer = [];
       }
@@ -154,7 +166,7 @@ function runProductTypeExport_(ctx) {
     token = page.nextPageToken || '';
     pages++;
     if (buffer.length) {
-      appendRows_(ctx.sheets.productTypeExport, buffer);
+      appendRows_(ctx.sheets.products, buffer);
       written += buffer.length;
       buffer = [];
     }
@@ -169,12 +181,12 @@ function runProductTypeExport_(ctx) {
 }
 
 
-function productTypeExportHeader_() {
+function productExportHeader_() {
   return ['ID', 'Product Type'];
 }
 
 
-function productTypeExportRow_(p) {
+function productExportRow_(p) {
   var allProductTypes = allProductTypes_(p);
   var fullPath = normalizeProductType_(allProductTypes.length ? allProductTypes[0] : '');
   return [
