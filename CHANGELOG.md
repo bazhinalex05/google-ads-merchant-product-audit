@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Додано лист `ProductTypeExport` з двома колонками `ID` і `Product Type` для перенесення повного шляху `product_type` між фідами.
+- Перероблено тестову версію під вузький експорт: скрипт створює тільки `Settings` і `ProductTypeExport`.
+- `ProductTypeExport` має лише дві колонки: `ID` і `Product Type` з повним шляхом `product_type`.
 
 ## v1.0.0 - 2026-08-23
 

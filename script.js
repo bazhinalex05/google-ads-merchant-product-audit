@@ -1,15 +1,12 @@
 ﻿/**
- * Merchant Product Audit
+ * Merchant Product Type Export
  *
- * Google Ads Script для аудиту поточного стану товарів у Merchant Center
+ * Google Ads Script для експорту product_type з Merchant Center
  * після застосування правил перетворення.
  *
  * Листи:
  * - Settings: налаштування запуску.
- * - Products: товари з Merchant Center.
- * - ProductTypes: дерево product_type з лічильниками товарів.
  * - ProductTypeExport: простий експорт ID + Product Type для перенесення між фідами.
- * - Brands: бренди з лічильниками товарів, включно з "(no brand)".
  *
  * Потрібні Advanced APIs у Google Ads Scripts:
  * - Merchant API -> Products
@@ -21,14 +18,10 @@ var SPREADSHEET_URL = 'PASTE_SPREADSHEET_URL_HERE';
 
 
 var SETTINGS_SHEET = 'Settings';
-var PRODUCTS_SHEET = 'Products';
-var PRODUCT_TYPES_SHEET = 'ProductTypes';
 var PRODUCT_TYPE_EXPORT_SHEET = 'ProductTypeExport';
-var BRANDS_SHEET = 'Brands';
 
 
 var START_TIME = new Date().getTime();
-var NO_BRAND = '(no brand)';
 
 
 function main() {
@@ -53,11 +46,8 @@ function main() {
     }
 
 
-    runProductAudit_(ctx);
-    buildProductTypeExportSheet_(ctx);
-    buildProductTypeSheet_(ctx);
-    buildBrandsSheet_(ctx);
-    Logger.log('Merchant Product Audit завершено. Товарів=' + Math.max(0, sheets.products.getLastRow() - 1) + '.');
+    var exported = runProductTypeExport_(ctx);
+    Logger.log('Product Type Export завершено. Рядків=' + exported + '.');
   } catch (e) {
     throw e;
   }
@@ -70,26 +60,17 @@ function resetAudit() {
   }
   var ss = SpreadsheetApp.openByUrl(SPREADSHEET_URL);
   var sheets = ensureSheets_(ss);
-  clearBelowHeader_(sheets.products);
-  clearBelowHeader_(sheets.productTypes);
   clearBelowHeader_(sheets.productTypeExport);
-  clearBelowHeader_(sheets.brands);
 }
 
 
 function ensureSheets_(ss) {
   var out = {
     settings: ss.getSheetByName(SETTINGS_SHEET) || ss.insertSheet(SETTINGS_SHEET),
-    products: ss.getSheetByName(PRODUCTS_SHEET) || ss.insertSheet(PRODUCTS_SHEET),
-    productTypes: ss.getSheetByName(PRODUCT_TYPES_SHEET) || ss.insertSheet(PRODUCT_TYPES_SHEET),
-    productTypeExport: ss.getSheetByName(PRODUCT_TYPE_EXPORT_SHEET) || ss.insertSheet(PRODUCT_TYPE_EXPORT_SHEET),
-    brands: ss.getSheetByName(BRANDS_SHEET) || ss.insertSheet(BRANDS_SHEET)
+    productTypeExport: ss.getSheetByName(PRODUCT_TYPE_EXPORT_SHEET) || ss.insertSheet(PRODUCT_TYPE_EXPORT_SHEET)
   };
   ensureSettingsTemplate_(out.settings);
-  ensureHeader_(out.products, productHeader_());
-  ensureHeader_(out.productTypes, productTypesHeader_());
   ensureHeader_(out.productTypeExport, productTypeExportHeader_());
-  ensureHeader_(out.brands, brandsHeader_());
   return out;
 }
 
@@ -106,12 +87,10 @@ function ensureSettingsTemplate_(sheet) {
     ['merchant_api_retry_count', settingOr_(existing.merchant_api_retry_count, '5'), 'Кількість повторних спроб після помилок Merchant API.'],
     ['merchant_api_retry_sleep_seconds', settingOr_(existing.merchant_api_retry_sleep_seconds, '10'), 'Базова пауза між повторними спробами в секундах.'],
     ['max_merchant_pages_per_run', settingOr_(existing.max_merchant_pages_per_run, '25'), 'Максимальна кількість сторінок Merchant API за один запуск.'],
-    ['product_row_flush_size', settingOr_(existing.product_row_flush_size, '1000'), 'Кількість рядків, які записуються в Products одним пакетом.'],
+    ['product_row_flush_size', settingOr_(existing.product_row_flush_size, '1000'), 'Кількість рядків, які записуються в ProductTypeExport одним пакетом.'],
     ['merchant_data_source_id_filter', existing.merchant_data_source_id_filter || '', 'Необов’язковий фільтр data source ID через кому. Порожньо = всі.'],
     ['merchant_feed_label_filter', existing.merchant_feed_label_filter || '', 'Необов’язковий фільтр feed label через кому. Порожньо = всі.'],
-    ['merchant_content_language_filter', existing.merchant_content_language_filter || '', 'Необов’язковий фільтр мов контенту через кому. Порожньо = всі.'],
-    ['include_raw_product_json', settingOr_(existing.include_raw_product_json, 'FALSE'), 'TRUE додає обрізаний raw JSON товару для діагностики.'],
-    ['raw_product_json_max_chars', settingOr_(existing.raw_product_json_max_chars, '2000'), 'Максимальна довжина raw JSON, якщо він увімкнений.']
+    ['merchant_content_language_filter', existing.merchant_content_language_filter || '', 'Необов’язковий фільтр мов контенту через кому. Порожньо = всі.']
   ];
   sheet.clear();
   sheet.getRange(1, 1, rows.length, 3).setValues(rows);
@@ -120,10 +99,7 @@ function ensureSettingsTemplate_(sheet) {
   sheet.setColumnWidth(1, 260);
   sheet.setColumnWidth(2, 220);
   sheet.setColumnWidth(3, 620);
-  var boolRows = {
-    auto_register_gcp_project: true,
-    include_raw_product_json: true
-  };
+  var boolRows = { auto_register_gcp_project: true };
   for (var i = 2; i <= rows.length; i++) {
     var key = String(sheet.getRange(i, 1).getValue() || '');
     if (boolRows[key]) sheet.getRange(i, 2).insertCheckboxes();
@@ -145,15 +121,13 @@ function readSettings_(sheet) {
     productRowFlushSize: num_(raw.product_row_flush_size, 1000),
     merchantDataSourceIdFilter: listSetting_(raw.merchant_data_source_id_filter),
     merchantFeedLabelFilter: listSetting_(raw.merchant_feed_label_filter),
-    merchantContentLanguageFilter: listSetting_(raw.merchant_content_language_filter),
-    includeRawProductJson: bool_(raw.include_raw_product_json, false),
-    rawProductJsonMaxChars: num_(raw.raw_product_json_max_chars, 2000)
+    merchantContentLanguageFilter: listSetting_(raw.merchant_content_language_filter)
   };
 }
 
 
-function runProductAudit_(ctx) {
-  clearBelowHeader_(ctx.sheets.products);
+function runProductTypeExport_(ctx) {
+  clearBelowHeader_(ctx.sheets.productTypeExport);
   var token = '';
   var written = 0;
   var scanned = 0;
@@ -170,9 +144,9 @@ function runProductAudit_(ctx) {
         filteredOut++;
         continue;
       }
-      buffer.push(productRow_(page.items[i], ctx.settings));
+      buffer.push(productTypeExportRow_(page.items[i]));
       if (buffer.length >= ctx.settings.productRowFlushSize) {
-        appendRows_(ctx.sheets.products, buffer);
+        appendRows_(ctx.sheets.productTypeExport, buffer);
         written += buffer.length;
         buffer = [];
       }
@@ -180,7 +154,7 @@ function runProductAudit_(ctx) {
     token = page.nextPageToken || '';
     pages++;
     if (buffer.length) {
-      appendRows_(ctx.sheets.products, buffer);
+      appendRows_(ctx.sheets.productTypeExport, buffer);
       written += buffer.length;
       buffer = [];
     }
@@ -191,148 +165,7 @@ function runProductAudit_(ctx) {
   if (token) {
     throw new Error('У Merchant більше товарів, ніж скрипт обробив за один запуск. Збільшіть max_merchant_pages_per_run і запустіть ще раз. Записано=' + written + ', проскановано=' + scanned + ', відфільтровано=' + filteredOut + '.');
   }
-  applyProductLinkColumns_(ctx.sheets.products);
-}
-
-
-function buildProductTypeSheet_(ctx) {
-  var root = makeTreeNode_('');
-  var last = ctx.sheets.products.getLastRow();
-  if (last > 1) {
-    var values = ctx.sheets.products.getRange(2, 7, last - 1, 1).getValues();
-    for (var i = 0; i < values.length; i++) {
-      var path = normalizeProductType_(values[i][0]);
-      if (!path) continue;
-      addProductTypeToTree_(root, splitProductType_(path));
-    }
-  }
-
-
-  var rows = [productTypesHeader_()];
-  emitProductTypeTreeRows_(root, 0, rows);
-  enforceSheetColumnCount_(ctx.sheets.productTypes, rows[0].length);
-  ctx.sheets.productTypes.clearContents();
-  ctx.sheets.productTypes.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
-  ctx.sheets.productTypes.getRange(1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#c9daf8');
-  ctx.sheets.productTypes.setFrozenRows(1);
-}
-
-
-function buildProductTypeExportSheet_(ctx) {
-  var rows = [productTypeExportHeader_()];
-  var last = ctx.sheets.products.getLastRow();
-  if (last > 1) {
-    var values = ctx.sheets.products.getRange(2, 1, last - 1, 7).getValues();
-    for (var i = 0; i < values.length; i++) {
-      var id = String(values[i][0] || '').trim();
-      var productType = normalizeProductType_(values[i][6]);
-      if (!id && !productType) continue;
-      rows.push([id, productType]);
-    }
-  }
-
-  enforceSheetColumnCount_(ctx.sheets.productTypeExport, rows[0].length);
-  ctx.sheets.productTypeExport.clearContents();
-  ctx.sheets.productTypeExport.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
-  ctx.sheets.productTypeExport.getRange(1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#c9daf8');
-  ctx.sheets.productTypeExport.setFrozenRows(1);
-  ctx.sheets.productTypeExport.setColumnWidth(1, 220);
-  ctx.sheets.productTypeExport.setColumnWidth(2, 520);
-}
-
-
-function buildBrandsSheet_(ctx) {
-  var counts = {};
-  var last = ctx.sheets.products.getLastRow();
-  if (last > 1) {
-    var values = ctx.sheets.products.getRange(2, 6, last - 1, 1).getValues();
-    for (var i = 0; i < values.length; i++) {
-      var brand = String(values[i][0] || '').trim() || NO_BRAND;
-      counts[brand] = (counts[brand] || 0) + 1;
-    }
-  }
-
-
-  var rows = [brandsHeader_()];
-  var brands = Object.keys(counts).sort(function(a, b) {
-    if (a === NO_BRAND) return 1;
-    if (b === NO_BRAND) return -1;
-    var delta = (counts[b] || 0) - (counts[a] || 0);
-    return delta || naturalCmp_(a, b);
-  });
-  for (var j = 0; j < brands.length; j++) rows.push([brands[j], counts[brands[j]] || 0]);
-  if (!counts[NO_BRAND]) rows.push([NO_BRAND, 0]);
-
-
-  enforceSheetColumnCount_(ctx.sheets.brands, rows[0].length);
-  ctx.sheets.brands.clearContents();
-  ctx.sheets.brands.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
-  ctx.sheets.brands.getRange(1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#c9daf8');
-  ctx.sheets.brands.setFrozenRows(1);
-}
-
-
-function productHeader_() {
-  var header = [
-    'id',
-    'offer_id',
-    'title',
-    'description',
-    'link',
-    'brand',
-    'product_type_full_path',
-    'google_product_category',
-    'availability',
-    'condition',
-    'price',
-    'sale_price',
-    'currency',
-    'image_link',
-    'additional_image_links',
-    'mobile_link',
-    'color',
-    'size',
-    'gender',
-    'age_group',
-    'material',
-    'pattern',
-    'custom_label_0',
-    'custom_label_1',
-    'custom_label_2',
-    'custom_label_3',
-    'custom_label_4',
-    'excluded_destinations',
-    'included_destinations',
-    'promotion_ids',
-    'shipping_label',
-    'ads_labels',
-    'ads_grouping',
-    'adult',
-    'multipack',
-    'is_bundle',
-    'custom_attributes',
-    'product_status',
-    'destination_statuses',
-    'item_level_issues',
-    'automated_discounts',
-    'archived',
-    'version_number',
-    'content_language',
-    'data_source_id'
-  ];
-  return header;
-}
-
-
-function productTypesHeader_() {
-  return [
-    'product_type_l1',
-    'product_type_l2',
-    'product_type_l3',
-    'product_type_l4',
-    'product_type_l5',
-    'product_count'
-  ];
+  return written;
 }
 
 
@@ -341,103 +174,18 @@ function productTypeExportHeader_() {
 }
 
 
-function brandsHeader_() {
-  return ['brand', 'product_count'];
-}
-
-
-function makeTreeNode_(name) {
-  return { name: name, count: 0, children: {} };
-}
-
-
-function addProductTypeToTree_(root, parts) {
-  var node = root;
-  for (var i = 0; i < parts.length && i < 5; i++) {
-    var part = String(parts[i] || '').trim();
-    if (!part) continue;
-    if (!node.children[part]) node.children[part] = makeTreeNode_(part);
-    node = node.children[part];
-    node.count++;
-  }
-}
-
-
-function emitProductTypeTreeRows_(node, level, rows) {
-  if (level > 0) {
-    var row = ['', '', '', '', '', node.count];
-    row[level - 1] = node.name;
-    rows.push(row);
-  }
-  var names = Object.keys(node.children).sort(naturalCmp_);
-  for (var i = 0; i < names.length; i++) {
-    emitProductTypeTreeRows_(node.children[names[i]], level + 1, rows);
-  }
-}
-
-
-function productRow_(p, settings) {
-  var a = productAttributes_(p);
+function productTypeExportRow_(p) {
   var allProductTypes = allProductTypes_(p);
   var fullPath = normalizeProductType_(allProductTypes.length ? allProductTypes[0] : '');
-  var price = priceObject_(a.price || p.price);
-  var salePrice = priceObject_(a.salePrice || p.salePrice);
-  var row = [
+  return [
     normOfferId_(p.offerId || p.id || ''),
-    p.offerId || '',
-    value_(a.title, p.title),
-    value_(a.description, p.description),
-    value_(a.link, p.link),
-    value_(a.brand, p.brand, customAttributeValue_(p, 'brand')),
-    fullPath,
-    value_(a.googleProductCategory, p.googleProductCategory, customAttributeValue_(p, 'google_product_category')),
-    value_(a.availability, p.availability),
-    value_(a.condition, p.condition),
-    price.value,
-    salePrice.value,
-    price.currency || salePrice.currency,
-    value_(a.imageLink, p.imageLink),
-    arrayValue_(a.additionalImageLinks || p.additionalImageLinks),
-    value_(a.mobileLink, p.mobileLink),
-    value_(a.color, p.color, customAttributeValue_(p, 'color')),
-    value_(a.size, p.size, customAttributeValue_(p, 'size')),
-    value_(a.gender, p.gender, customAttributeValue_(p, 'gender')),
-    value_(a.ageGroup, p.ageGroup, customAttributeValue_(p, 'age_group')),
-    value_(a.material, p.material, customAttributeValue_(p, 'material')),
-    value_(a.pattern, p.pattern, customAttributeValue_(p, 'pattern')),
-    customLabelValue_(p, 0),
-    customLabelValue_(p, 1),
-    customLabelValue_(p, 2),
-    customLabelValue_(p, 3),
-    customLabelValue_(p, 4),
-    arrayValue_(a.excludedDestinations || p.excludedDestinations),
-    arrayValue_(a.includedDestinations || p.includedDestinations),
-    arrayValue_(a.promotionIds || p.promotionIds),
-    value_(a.shippingLabel, p.shippingLabel, customAttributeValue_(p, 'shipping_label')),
-    arrayValue_(a.adsLabels || p.adsLabels),
-    value_(a.adsGrouping, p.adsGrouping, customAttributeValue_(p, 'ads_grouping')),
-    value_(a.adult, p.adult),
-    value_(a.multipack, p.multipack),
-    value_(a.isBundle, p.isBundle),
-    customAttributesBrief_(p),
-    productStatusBrief_(p.productStatus),
-    destinationStatusesBrief_(p.productStatus),
-    itemLevelIssuesBrief_(p.productStatus),
-    jsonBrief_(p.automatedDiscounts),
-    value_(p.archived),
-    value_(p.versionNumber),
-    p.contentLanguage || a.contentLanguage || '',
-    extractDataSourceId_(p.dataSource || p.source || a.dataSource || '')
+    fullPath
   ];
-  if (settings.includeRawProductJson) row.push(truncate_(JSON.stringify(p), settings.rawProductJsonMaxChars));
-  return row;
 }
 
 
 function ensureHeader_(sheet, header) {
   var finalHeader = header.slice();
-  var settings = sheet.getName() === PRODUCTS_SHEET ? readSettingsMap_(sheet.getParent().getSheetByName(SETTINGS_SHEET) || sheet) : {};
-  if (sheet.getName() === PRODUCTS_SHEET && bool_(settings.include_raw_product_json, false)) finalHeader.push('raw_product_json');
   enforceSheetColumnCount_(sheet, finalHeader.length);
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, finalHeader.length).setValues([finalHeader]);

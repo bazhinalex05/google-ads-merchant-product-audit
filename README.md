@@ -1,6 +1,6 @@
-# Merchant Product Audit
+# Merchant Product Type Export
 
-Google Ads Script для аудиту поточного стану товарів у Merchant Center після застосування правил перетворення.
+Google Ads Script для експорту `product_type` з Merchant Center після застосування правил перетворення.
 
 ## Код
 
@@ -27,7 +27,4 @@ Google Ads Script для аудиту поточного стану товарі
 Скрипт створює або оновлює листи:
 
 - `Settings` - налаштування запуску.
-- `Products` - товари з Merchant Center.
-- `ProductTypes` - дерево `product_type` з лічильниками товарів.
 - `ProductTypeExport` - проста таблиця для перенесення `product_type`: `ID` і `Product Type`.
-- `Brands` - бренди з лічильниками товарів, включно з `(no brand)`.
