@@ -8,6 +8,7 @@
  * - Settings: налаштування запуску.
  * - Products: товари з Merchant Center.
  * - ProductTypes: дерево product_type з лічильниками товарів.
+ * - ProductTypeExport: простий експорт ID + Product Type для перенесення між фідами.
  * - Brands: бренди з лічильниками товарів, включно з "(no brand)".
  *
  * Потрібні Advanced APIs у Google Ads Scripts:
@@ -22,6 +23,7 @@ var SPREADSHEET_URL = 'PASTE_SPREADSHEET_URL_HERE';
 var SETTINGS_SHEET = 'Settings';
 var PRODUCTS_SHEET = 'Products';
 var PRODUCT_TYPES_SHEET = 'ProductTypes';
+var PRODUCT_TYPE_EXPORT_SHEET = 'ProductTypeExport';
 var BRANDS_SHEET = 'Brands';
 
 
@@ -52,6 +54,7 @@ function main() {
 
 
     runProductAudit_(ctx);
+    buildProductTypeExportSheet_(ctx);
     buildProductTypeSheet_(ctx);
     buildBrandsSheet_(ctx);
     Logger.log('Merchant Product Audit завершено. Товарів=' + Math.max(0, sheets.products.getLastRow() - 1) + '.');
@@ -69,6 +72,7 @@ function resetAudit() {
   var sheets = ensureSheets_(ss);
   clearBelowHeader_(sheets.products);
   clearBelowHeader_(sheets.productTypes);
+  clearBelowHeader_(sheets.productTypeExport);
   clearBelowHeader_(sheets.brands);
 }
 
@@ -78,11 +82,13 @@ function ensureSheets_(ss) {
     settings: ss.getSheetByName(SETTINGS_SHEET) || ss.insertSheet(SETTINGS_SHEET),
     products: ss.getSheetByName(PRODUCTS_SHEET) || ss.insertSheet(PRODUCTS_SHEET),
     productTypes: ss.getSheetByName(PRODUCT_TYPES_SHEET) || ss.insertSheet(PRODUCT_TYPES_SHEET),
+    productTypeExport: ss.getSheetByName(PRODUCT_TYPE_EXPORT_SHEET) || ss.insertSheet(PRODUCT_TYPE_EXPORT_SHEET),
     brands: ss.getSheetByName(BRANDS_SHEET) || ss.insertSheet(BRANDS_SHEET)
   };
   ensureSettingsTemplate_(out.settings);
   ensureHeader_(out.products, productHeader_());
   ensureHeader_(out.productTypes, productTypesHeader_());
+  ensureHeader_(out.productTypeExport, productTypeExportHeader_());
   ensureHeader_(out.brands, brandsHeader_());
   return out;
 }
@@ -212,6 +218,29 @@ function buildProductTypeSheet_(ctx) {
 }
 
 
+function buildProductTypeExportSheet_(ctx) {
+  var rows = [productTypeExportHeader_()];
+  var last = ctx.sheets.products.getLastRow();
+  if (last > 1) {
+    var values = ctx.sheets.products.getRange(2, 1, last - 1, 7).getValues();
+    for (var i = 0; i < values.length; i++) {
+      var id = String(values[i][0] || '').trim();
+      var productType = normalizeProductType_(values[i][6]);
+      if (!id && !productType) continue;
+      rows.push([id, productType]);
+    }
+  }
+
+  enforceSheetColumnCount_(ctx.sheets.productTypeExport, rows[0].length);
+  ctx.sheets.productTypeExport.clearContents();
+  ctx.sheets.productTypeExport.getRange(1, 1, rows.length, rows[0].length).setValues(rows);
+  ctx.sheets.productTypeExport.getRange(1, 1, 1, rows[0].length).setFontWeight('bold').setBackground('#c9daf8');
+  ctx.sheets.productTypeExport.setFrozenRows(1);
+  ctx.sheets.productTypeExport.setColumnWidth(1, 220);
+  ctx.sheets.productTypeExport.setColumnWidth(2, 520);
+}
+
+
 function buildBrandsSheet_(ctx) {
   var counts = {};
   var last = ctx.sheets.products.getLastRow();
@@ -304,6 +333,11 @@ function productTypesHeader_() {
     'product_type_l5',
     'product_count'
   ];
+}
+
+
+function productTypeExportHeader_() {
+  return ['ID', 'Product Type'];
 }
 
 

@@ -29,4 +29,5 @@ Google Ads Script для аудиту поточного стану товарі
 - `Settings` - налаштування запуску.
 - `Products` - товари з Merchant Center.
 - `ProductTypes` - дерево `product_type` з лічильниками товарів.
+- `ProductTypeExport` - проста таблиця для перенесення `product_type`: `ID` і `Product Type`.
 - `Brands` - бренди з лічильниками товарів, включно з `(no brand)`.
