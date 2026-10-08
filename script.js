@@ -92,7 +92,7 @@ function ensureSettingsTemplate_(sheet) {
   var rows = [
     ['setting', 'value', 'description'],
     ['merchant_id', existing.merchant_id || '', 'ID акаунта Merchant Center.'],
-    ['developer_email', existing.developer_email || '', 'Email розробника для реєстрації GCP project у Merchant API.'],
+    ['developer_email', existing.developer_email || 'bazhinalex05@gmail.com', 'Email розробника для реєстрації GCP project у Merchant API.'],
     ['auto_register_gcp_project', settingOr_(existing.auto_register_gcp_project, 'TRUE'), 'TRUE автоматично реєструє GCP project Google Ads Scripts у Merchant API.'],
     ['max_run_minutes', settingOr_(existing.max_run_minutes, '25'), 'М’який ліміт часу запуску в хвилинах.'],
     ['merchant_api_page_size', settingOr_(existing.merchant_api_page_size, '1000'), 'Кількість товарів в одному запиті до Merchant API.'],
