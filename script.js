@@ -92,7 +92,7 @@ function ensureSettingsTemplate_(sheet) {
   var rows = [
     ['setting', 'value', 'description'],
     ['merchant_id', existing.merchant_id || '', 'ID акаунта Merchant Center.'],
-    ['developer_email', existing.developer_email || 'bazhinalex05@gmail.com', 'Email розробника для реєстрації GCP project у Merchant API.'],
+    ['developer_email', existing.developer_email || '', 'Email розробника для реєстрації GCP project у Merchant API.'],
     ['auto_register_gcp_project', settingOr_(existing.auto_register_gcp_project, 'TRUE'), 'TRUE автоматично реєструє GCP project Google Ads Scripts у Merchant API.'],
     ['max_run_minutes', settingOr_(existing.max_run_minutes, '25'), 'М’який ліміт часу запуску в хвилинах.'],
     ['merchant_api_page_size', settingOr_(existing.merchant_api_page_size, '1000'), 'Кількість товарів в одному запиті до Merchant API.'],
@@ -139,7 +139,6 @@ function readSettings_(sheet) {
 
 
 function runProductTypeExport_(ctx) {
-  clearBelowHeader_(ctx.sheets.products);
   var token = '';
   var scanned = 0;
   var filteredOut = 0;
@@ -168,10 +167,13 @@ function runProductTypeExport_(ctx) {
     throw new Error('У Merchant більше товарів, ніж скрипт обробив за один запуск. Збільшіть max_merchant_pages_per_run і запустіть ще раз. Проскановано=' + scanned + ', відфільтровано=' + filteredOut + '.');
   }
   var rows = productExportRows_(rowsById, idOrder);
+  clearBelowHeader_(ctx.sheets.products);
   var flushSize = Math.max(1, ctx.settings.productRowFlushSize || 1000);
   for (var j = 0; j < rows.length; j += flushSize) {
-    appendRows_(ctx.sheets.products, rows.slice(j, j + flushSize));
+    var batch = rows.slice(j, j + flushSize);
+    ctx.sheets.products.getRange(j + 2, 1, batch.length, 2).setValues(batch);
   }
+  SpreadsheetApp.flush();
   return rows.length;
 }
 
